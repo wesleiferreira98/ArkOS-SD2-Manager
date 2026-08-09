@@ -12,8 +12,27 @@ find "$BASE_DIR/lib" -type f -name '*.sh' -exec chmod +x {} +
 
 cat > /tmp/rom-splitter-launcher.sh <<EOF2
 #!/usr/bin/env bash
+set -uo pipefail
 cd "$BASE_DIR"
-exec "$BASE_DIR/roms2-manager.sh"
+
+# SSH and an interactive shell already provide a usable terminal.
+if [[ -t 0 && -t 1 ]]; then
+  export TERM="\${TERM:-linux}"
+  exec "$BASE_DIR/roms2-manager.sh"
+fi
+
+# EmulationStation may launch custom Tools without a controlling TTY. Run the
+# terminal UI on VT2, then switch back to the VT normally used by ES.
+if command -v openvt >/dev/null 2>&1 && command -v chvt >/dev/null 2>&1; then
+  sudo openvt -c 2 -s -f -w -- env TERM=linux "$BASE_DIR/roms2-manager.sh"
+  rc=\$?
+  sudo chvt 1 || true
+  exit "\$rc"
+fi
+
+# Compatibility fallback for images without openvt/chvt.
+export TERM=linux
+exec "$BASE_DIR/roms2-manager.sh" </dev/tty1 >/dev/tty1 2>&1
 EOF2
 chmod +x /tmp/rom-splitter-launcher.sh
 sudo mkdir -p "$TOOLS_DIR" /opt/system/Tools

@@ -61,6 +61,43 @@ ui_checklist() {
   fi
 }
 
+ui_gauge() {
+  local title="$1" prompt="$2"
+  if [[ -n "$UI_BIN" ]]; then
+    "$UI_BIN" --title "$title" --gauge "$prompt" 10 72 0
+  else
+    # Keep noninteractive/keyboard-only execution quiet while consuming input.
+    while IFS= read -r _; do :; done
+  fi
+}
+
+build_system_menu_cache() {
+  local system="$1" output_file="$2" item loc size rel index=0 total
+  local -a logical_items=()
+
+  inventory_progress 3 2 "Scanning $system storage..."
+  prepare_system_inventory_cache "$system"
+  inventory_progress 3 10 "Reading game entries..."
+  mapfile -t logical_items < <(list_logical_games_for_system "$system" 3)
+  total=${#logical_items[@]}
+
+  : > "$output_file"
+  for item in "${logical_items[@]}"; do
+    index=$((index+1))
+    rel="$system/$item"
+    loc="$(cached_group_location "$rel")"
+    if [[ "$system" == ports ]]; then
+      size="size calculated after selection"
+    else
+      size="$(human_size "$(cached_group_size "$rel" 2>/dev/null || echo 0)")"
+    fi
+    printf '%s\0%s\0%s\0' "$item" "$loc" "$size" >> "$output_file"
+    inventory_progress 3 $((55 + index * 44 / (total > 0 ? total : 1))) \
+      "Preparing game list: $index/$total"
+  done
+  inventory_progress 3 100 "Game list ready: $total game(s)"
+}
+
 show_storage_info() {
   local s1 s2
   s1="$(df -h "$ROMS_ROOT" | tail -n1 | awk '{print "SD1: " $3 " used / " $2 ", " $4 " free"}')"
@@ -80,58 +117,104 @@ choose_system() {
 }
 
 manage_system() {
-  local system="$1" opts=() games=() item loc size rel id=0
-  while read -r item; do
-    [[ -n "$item" ]] || continue
-    rel="$system/$item"
-    loc="$(game_group_location "$rel")"
-    size="$(human_size "$(game_group_size "$rel" 2>/dev/null || echo 0)")"
-    id=$((id+1))
-    games[id]="$item"
-    opts+=("$id" "$item | $loc | $size" "off")
-  done < <(list_logical_games_for_system "$system")
+  local system="$1" item loc size rel id selected_output scan_file scan_rc gauge_rc
+  local -a scan_pipeline_status
+  while true; do
+    local opts=() games=()
+    id=0
+    scan_file="$(mktemp "$STATE_DIR/system-scan.XXXXXX")"
+    set +e
+    build_system_menu_cache "$system" "$scan_file" 3>&1 | ui_gauge "Scanning games" "Scanning $system..."
+    scan_pipeline_status=("${PIPESTATUS[@]}")
+    scan_rc=${scan_pipeline_status[0]:-1}
+    gauge_rc=${scan_pipeline_status[1]:-1}
+    set -e
+    if ((scan_rc != 0 || gauge_rc != 0)); then
+      rm -f -- "$scan_file"
+      ui_msg "Scan error" "Could not scan games for $system. Check the log for details."
+      return 0
+    fi
 
-  ((${#opts[@]})) || { ui_msg "ROM Splitter" "No items found in $system."; return; }
-  local -a selected=()
-  mapfile -t selected < <(ui_checklist "$system" "Select one or more games" "${opts[@]}") || return
-  ((${#selected[@]})) || return
+    while IFS= read -r -d '' item && IFS= read -r -d '' loc && IFS= read -r -d '' size; do
+      id=$((id+1))
+      games[id]="$item"
+      opts+=("$id" "$item | $loc | $size" "off")
+    done < "$scan_file"
+    rm -f -- "$scan_file"
 
-  local selected_id first_loc="" total=0 member_count=0 group_size group_members_count
-  for selected_id in "${selected[@]}"; do
-    item="${games[selected_id]:-}"
-    [[ -n "$item" ]] || continue
-    rel="$system/$item"
-    loc="$(game_group_location "$rel")"
-    [[ -z "$first_loc" ]] && first_loc="$loc"
-    [[ "$loc" == "$first_loc" ]] || { ui_msg "Selection" "Select games from only one storage location at a time."; return; }
-    group_size="$(game_group_size "$rel")"
-    group_members_count="$(resolve_game_group "$rel" | wc -l)"
-    total=$((total + group_size))
-    member_count=$((member_count + group_members_count))
+    ((${#opts[@]})) || { ui_msg "ROM Splitter" "No items found in $system."; return; }
+    local -a selected=()
+    if ! selected_output="$(ui_checklist "$system" "Select one or more games" "${opts[@]}")"; then
+      # B/Escape returns to the system list.
+      return 0
+    fi
+    mapfile -t selected <<< "$selected_output"
+    if [[ -z "$selected_output" || ${#selected[@]} -eq 0 ]]; then
+      ui_msg "Selection required" "Select at least one game with X before pressing A."
+      continue
+    fi
+
+    local selected_id first_loc="" total=0 member_count=0 group_size group_members_count
+    for selected_id in "${selected[@]}"; do
+      item="${games[selected_id]:-}"
+      [[ -n "$item" ]] || continue
+      rel="$system/$item"
+      loc="$(game_group_location "$rel")"
+      [[ -z "$first_loc" ]] && first_loc="$loc"
+      if [[ "$loc" != "$first_loc" ]]; then
+        ui_msg "Selection" "Select games from only one storage location at a time."
+        continue 2
+      fi
+      group_size="$(game_group_size "$rel")"
+      group_members_count="$(resolve_game_group "$rel" | wc -l)"
+      total=$((total + group_size))
+      member_count=$((member_count + group_members_count))
+    done
+
+    local destination move_action chosen_action
+    case "$first_loc" in
+      SD1) destination="SD2"; move_action="move_group_to_sd2" ;;
+      SD2|SD2-unmounted) destination="SD1"; move_action="move_group_to_sd1" ;;
+      *) ui_msg "Error" "Unsupported selection state: $first_loc"; continue ;;
+    esac
+
+    chosen_action="$(ui_menu "Game action" \
+      "${#selected[@]} game(s) selected | $member_count file(s)/item(s) | $(human_size "$total")" \
+      "move" "Move to $destination" \
+      "delete" "Permanently delete")" || continue
+
+    local action result_title
+    case "$chosen_action" in
+      move)
+        action="$move_action"
+        result_title="Move result"
+        ui_yesno "Confirm move" "Move ${#selected[@]} game(s) to $destination?\n\nTotal: $(human_size "$total")" || continue
+        ;;
+      delete)
+        action="delete_game_group"
+        result_title="Delete result"
+        ui_yesno "PERMANENT DELETE" \
+          "Permanently delete ${#selected[@]} game(s)?\n\n$member_count file(s)/item(s)\nTotal: $(human_size "$total")\n\nThis cannot be undone." || continue
+        ;;
+      *) continue ;;
+    esac
+
+    local completed=0 failed=0
+    for selected_id in "${selected[@]}"; do
+      item="${games[selected_id]:-}"
+      [[ -n "$item" ]] || continue
+      if "$action" "$system/$item"; then completed=$((completed+1)); else failed=$((failed+1)); fi
+    done
+    ui_msg "$result_title" "Completed: $completed\nFailed: $failed\n\nSee the log for details."
   done
-
-  local destination action
-  case "$first_loc" in
-    SD1) destination="SD2"; action="move_group_to_sd2" ;;
-    SD2|SD2-unmounted) destination="SD1"; action="move_group_to_sd1" ;;
-    *) ui_msg "Error" "Unsupported selection state: $first_loc"; return ;;
-  esac
-  ui_yesno "Confirm batch" "${#selected[@]} game(s) selected\n$member_count file(s)/item(s)\nTotal: $(human_size "$total")\nDestination: $destination" || return
-
-  local completed=0 failed=0
-  for selected_id in "${selected[@]}"; do
-    item="${games[selected_id]:-}"
-    [[ -n "$item" ]] || continue
-    if "$action" "$system/$item"; then completed=$((completed+1)); else failed=$((failed+1)); fi
-  done
-  ui_msg "Batch result" "Completed: $completed\nFailed: $failed\n\nSee the log for details."
 }
 
 manage_games() {
   mount_sd2 || { ui_msg "SD2" "No configured ROMS2 card was found."; return; }
   local sys
-  sys="$(choose_system)" || return
-  manage_system "$sys"
+  while sys="$(choose_system)"; do
+    manage_system "$sys"
+  done
 }
 
 format_sd2_ui() {

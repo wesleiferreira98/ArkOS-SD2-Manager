@@ -8,12 +8,25 @@ find_oga_controls() {
   local candidate
   for candidate in \
     "${OGA_CONTROLS_BIN:-}" \
+    /opt/quitter/oga_controls \
     /opt/inttools/oga_controls \
+    /opt/system/Tools/PortMaster/oga_controls \
     /roms/ports/PortMaster/oga_controls \
     /roms2/ports/PortMaster/oga_controls; do
     [[ -n "$candidate" && -x "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
   done
   command -v oga_controls 2>/dev/null || return 1
+}
+
+find_gptokeyb() {
+  local candidate
+  for candidate in \
+    "${GPTOKEYB_BIN:-}" \
+    /opt/inttools/gptokeyb \
+    /opt/system/Tools/PortMaster/gptokeyb; do
+    [[ -n "$candidate" && -x "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
+  done
+  command -v gptokeyb 2>/dev/null || return 1
 }
 
 handheld_device_name() {
@@ -50,10 +63,30 @@ start_controller_support() {
   [[ "${ROMS2_DEMO:-0}" != 1 ]] || { CONTROLS_BACKEND="demo/keyboard"; return 0; }
   [[ -t 0 && -t 1 ]] || return 0
 
-  if pgrep -x oga_controls >/dev/null 2>&1; then
-    CONTROLS_BACKEND="existing oga_controls"
-    log "An existing oga_controls process was detected; a second mapper was not started."
+  if pgrep -f 'gptokeyb|oga_controls' >/dev/null 2>&1; then
+    CONTROLS_BACKEND="existing controller mapper"
+    log "An existing controller mapper was detected; a second mapper was not started."
     return 0
+  fi
+
+  local gptokey keys controller_db
+  gptokey="$(find_gptokeyb || true)"
+  keys="$ROMS2_BASE_DIR/config/rom-splitter.gptk"
+  controller_db="/opt/inttools/gamecontrollerdb.txt"
+  if [[ -n "$gptokey" && -r "$keys" ]]; then
+    run_root chmod 666 /dev/uinput
+    [[ -r "$controller_db" ]] && export SDL_GAMECONTROLLERCONFIG_FILE="$controller_db"
+    "$gptokey" -c "$keys" >> "$LOG_FILE" 2>&1 &
+    CONTROLS_PID=$!
+    sleep 0.2
+    if kill -0 "$CONTROLS_PID" 2>/dev/null; then
+      CONTROLS_BACKEND="gptokeyb (ROM Splitter profile)"
+      log "Controller support started: $CONTROLS_BACKEND"
+      return 0
+    fi
+    wait "$CONTROLS_PID" 2>/dev/null || true
+    CONTROLS_PID=""
+    log "gptokeyb failed to start; trying oga_controls fallback."
   fi
 
   local mapper profile settings runtime_dir
@@ -93,6 +126,7 @@ stop_controller_support() {
     wait "$CONTROLS_PID" 2>/dev/null || true
   fi
   CONTROLS_PID=""
+  unset SDL_GAMECONTROLLERCONFIG_FILE
 }
 
 controller_help_text() {

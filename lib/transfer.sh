@@ -7,7 +7,17 @@ free_bytes() {
 
 copy_with_progress() {
   local src="$1" dst="$2" gauge_title="${3:-Copying}"
+  local total_files=1
+  local -a rsync_args=(-a --info=progress2 --out-format=ROMFILE:%n --)
   mkdir -p "$(dirname "$dst")"
+
+  if [[ -d "$src" ]]; then
+    mkdir -p "$dst"
+    total_files="$(find "$src" \( -type f -o -type l \) -printf . | wc -c)"
+    rsync_args+=("$src/" "$dst/")
+  else
+    rsync_args+=("$src" "$dst")
+  fi
 
   if command -v rsync >/dev/null 2>&1; then
     # rsync progress2 emits percentage; feed it to dialog gauge if available.
@@ -15,20 +25,49 @@ copy_with_progress() {
       local rsync_rc dialog_rc
       local -a pipeline_status
       set +e
-      rsync -a --info=progress2 -- "$src" "$dst" 2>&1 | \
+      rsync "${rsync_args[@]}" 2>&1 | \
         stdbuf -oL tr '\r' '\n' | \
-        awk 'match($0,/([0-9]{1,3})%/,m){print m[1]}' | \
-        dialog --title "$gauge_title" --gauge "$(basename "$src")" 8 70 0
+        stdbuf -oL awk -v total_files="$total_files" -v fallback_name="$(basename "$src")" -v log_file="$LOG_FILE" '
+          BEGIN { current_file = fallback_name; copied = 0 }
+          /^ROMFILE:/ {
+            current_file = substr($0, 9)
+            if (current_file !~ /\/$/) copied++
+            next
+          }
+          match($0, /[0-9][0-9]*%/) {
+            percentage = substr($0, RSTART, RLENGTH - 1) + 0
+            if (percentage < 100 && percentage != previous) {
+              print "XXX"
+              print percentage
+              print current_file "\n\nFiles copied: " copied "/" total_files
+              print "XXX"
+              previous = percentage
+            }
+            next
+          }
+          NF { print "RSYNC: " $0 >> log_file; fflush(log_file) }
+          END {
+            print "XXX"
+            print 100
+            print current_file "\n\nFiles copied: " total_files "/" total_files
+            print "XXX"
+          }
+        ' | \
+        dialog --title "$gauge_title" --gauge "$(basename "$src")" 10 72 0
       pipeline_status=("${PIPESTATUS[@]}")
       rsync_rc=${pipeline_status[0]}
       dialog_rc=${pipeline_status[3]:-0}
       set -e
       (( rsync_rc == 0 && dialog_rc == 0 ))
     else
-      rsync -a --info=progress2 -- "$src" "$dst"
+      rsync "${rsync_args[@]}"
     fi
   else
-    cp -a -- "$src" "$dst"
+    if [[ -d "$src" ]]; then
+      cp -a -- "$src/." "$dst/"
+    else
+      cp -a -- "$src" "$dst"
+    fi
   fi
 }
 
@@ -196,6 +235,49 @@ move_group_to_sd1() {
     esac
   done
   log "Moved game group to SD1: $primary (${#members[@]} items)"
+}
+
+delete_item_permanently() {
+  local rel="$1" location src_sd1="$ROMS_ROOT/$rel" src_sd2="$ROMS2_ROOT/$rel"
+  validate_manifest_rel "$rel" || { fail "Invalid or unsupported item path: $rel"; return 1; }
+  location="$(item_location "$rel")"
+
+  case "$location" in
+    SD1)
+      rm -rf -- "$src_sd1" || { fail "Could not delete from SD1: $rel"; return 1; }
+      ;;
+    SD2)
+      unbind_one "$src_sd1" || { fail "Could not unmount before deleting: $rel"; return 1; }
+      rm -rf -- "$src_sd1"
+      rm -rf -- "$src_sd2" || { fail "Could not delete from SD2: $rel"; return 1; }
+      manifest_remove "$rel"
+      ;;
+    SD2-unmounted)
+      rm -rf -- "$src_sd2" || { fail "Could not delete from SD2: $rel"; return 1; }
+      rm -rf -- "$src_sd1"
+      manifest_remove "$rel"
+      ;;
+    *) fail "Game item was not found for deletion: $rel"; return 1 ;;
+  esac
+  log "Permanently deleted: $rel ($location)"
+}
+
+delete_game_group() {
+  local primary="$1" rel resolved deleted=0
+  local -a members
+  resolved="$(resolve_game_group "$primary")" || return 1
+  mapfile -t members <<< "$resolved"
+  ((${#members[@]})) || { fail "No files found for game: $primary"; return 1; }
+
+  for rel in "${members[@]}"; do
+    if delete_item_permanently "$rel"; then
+      deleted=$((deleted+1))
+    else
+      fail "Game group deletion stopped after $deleted of ${#members[@]} items: $primary"
+      return 1
+    fi
+  done
+  log "Permanently deleted game group: $primary (${#members[@]} items)"
 }
 
 repair_storage() {

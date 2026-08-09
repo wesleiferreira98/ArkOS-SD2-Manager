@@ -6,19 +6,21 @@ See [CHANGELOG.md](CHANGELOG.md) for release history and known limitations.
 
 Games stored physically on SD2 are bind-mounted back to their original `/roms/<system>/<game>` locations. If SD2 is absent, the console and games remaining on SD1 continue to work normally.
 
-> **Pre-release warning:** version 0.2.0 has automated local tests but still requires validation on real handheld hardware. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
+> **Beta warning:** version 0.4.2-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
 
 ## Features
 
 - Detects candidate secondary storage devices and protects devices containing `/`, `/boot`, or `/roms`.
 - Prepares SD2 as exFAT with the `ROMS2` label and mounts it at `/roms2`.
 - Reads systems from EmulationStation and shows game size and SD1/SD2 location.
+- Displays progressive scan feedback whenever a system game list is built or refreshed.
 - Transfers one or multiple files/directories with free-space checks, SHA-256 verification and rollback on failure.
+- Permanently deletes selected games from SD1 or SD2 after an explicit confirmation.
 - Restores bind mounts automatically after boot using a manifest stored on SD2.
 - Groups CUE tracks, M3U multidisc sets and matching PortMaster launcher/directories.
 - Discovers games copied directly to SD2 from a computer or over the network.
 - Provides diagnostics, mount repair and safe unmount operations.
-- Supports built-in handheld controls through `oga_controls`, with keyboard fallback.
+- Supports built-in handheld controls through the firmware's `gptokeyb` or `oga_controls`, with keyboard fallback.
 - Leaves `gamelist.xml`, artwork and media out of normal game transfers.
 
 ## Supported controls
@@ -57,7 +59,7 @@ Administrative operations use `sudo` when the manager is not running as root.
 The release contains two files:
 
 ```text
-ROM-Splitter-0.2.0.zip
+ROM-Splitter-0.4.2-beta.zip
 Install ROM Splitter.sh
 ```
 
@@ -132,10 +134,17 @@ The manager excludes detected system and ROM devices and asks for confirmation. 
 2. Select a system.
 3. Use X to mark one or more games.
 4. Press A to continue.
-5. Review the game count, item count, total size and destination.
-6. Confirm the operation.
+5. Select `Move`.
+6. Review the game count, item count, total size and destination.
+7. Confirm the operation.
 
 SD1 games are moved to SD2; SD2 games are restored to SD1. A batch must contain games from only one storage location. The source is not removed until copying and verification succeed.
+
+## Permanently delete games
+
+Select one or more games using the same workflow, then choose `Permanently delete`. ROM Splitter displays a second confirmation containing the game count, grouped item count and total size. Deletion cannot be undone.
+
+Logical game groups are deleted together. For example, deleting a PortMaster launcher also deletes its detected data directory, while deleting a CUE or M3U entry also deletes its referenced members. Review the confirmation carefully.
 
 ## CUE and multidisc games
 
@@ -161,6 +170,15 @@ Half-Life.sh + half-life/
 ```
 
 Matching ignores case, spaces, hyphens, underscores and punctuation. If more than one directory matches, ROM Splitter reports an ambiguity instead of guessing. A launcher without a matching directory remains an individual item.
+
+When the names differ, ROM Splitter safely inspects path-related lines in the launcher, such as:
+
+```bash
+GAMEDIR="/roms/ports/tmntsr"
+cd "$GAMEDIR"
+```
+
+Only the `.sh` launcher is displayed in the game list. The referenced data directory is hidden from the list, included in the total size, and copied or restored together with the launcher. Launcher scripts are parsed as text and are never executed during detection.
 
 ## Games copied directly to SD2
 
