@@ -22,6 +22,15 @@ ui_msg() {
   fi
 }
 
+ui_infobox() {
+  local title="$1" text="$2"
+  if [[ -n "$UI_BIN" ]]; then
+    "$UI_BIN" --title "$title" --infobox "$text" 8 72 || true
+  else
+    printf '\n[%s]\n%s\n' "$title" "$text"
+  fi
+}
+
 ui_yesno() {
   local title="$1" text="$2"
   if [[ -n "$UI_BIN" ]]; then
@@ -117,30 +126,34 @@ choose_system() {
 }
 
 manage_system() {
-  local system="$1" item loc size rel id selected_output scan_file scan_rc gauge_rc
-  local -a scan_pipeline_status
+  local system="$1" item loc size rel id selected_output scan_file scan_rc gauge_rc needs_refresh=1
+  local -a scan_pipeline_status opts=() games=()
   while true; do
-    local opts=() games=()
-    id=0
-    scan_file="$(mktemp "$STATE_DIR/system-scan.XXXXXX")"
-    set +e
-    build_system_menu_cache "$system" "$scan_file" 3>&1 | ui_gauge "Scanning games" "Scanning $system..."
-    scan_pipeline_status=("${PIPESTATUS[@]}")
-    scan_rc=${scan_pipeline_status[0]:-1}
-    gauge_rc=${scan_pipeline_status[1]:-1}
-    set -e
-    if ((scan_rc != 0 || gauge_rc != 0)); then
-      rm -f -- "$scan_file"
-      ui_msg "Scan error" "Could not scan games for $system. Check the log for details."
-      return 0
-    fi
+    if ((needs_refresh)); then
+      opts=()
+      games=()
+      id=0
+      scan_file="$(mktemp "$STATE_DIR/system-scan.XXXXXX")"
+      set +e
+      build_system_menu_cache "$system" "$scan_file" 3>&1 | ui_gauge "Scanning games" "Scanning $system..."
+      scan_pipeline_status=("${PIPESTATUS[@]}")
+      scan_rc=${scan_pipeline_status[0]:-1}
+      gauge_rc=${scan_pipeline_status[1]:-1}
+      set -e
+      if ((scan_rc != 0 || gauge_rc != 0)); then
+        rm -f -- "$scan_file"
+        ui_msg "Scan error" "Could not scan games for $system. Check the log for details."
+        return 0
+      fi
 
-    while IFS= read -r -d '' item && IFS= read -r -d '' loc && IFS= read -r -d '' size; do
-      id=$((id+1))
-      games[id]="$item"
-      opts+=("$id" "$item | $loc | $size" "off")
-    done < "$scan_file"
-    rm -f -- "$scan_file"
+      while IFS= read -r -d '' item && IFS= read -r -d '' loc && IFS= read -r -d '' size; do
+        id=$((id+1))
+        games[id]="$item"
+        opts+=("$id" "$item | $loc | $size" "off")
+      done < "$scan_file"
+      rm -f -- "$scan_file"
+      needs_refresh=0
+    fi
 
     ((${#opts[@]})) || { ui_msg "ROM Splitter" "No items found in $system."; return; }
     local -a selected=()
@@ -206,6 +219,9 @@ manage_system() {
       if "$action" "$system/$item"; then completed=$((completed+1)); else failed=$((failed+1)); fi
     done
     ui_msg "$result_title" "Completed: $completed\nFailed: $failed\n\nSee the log for details."
+    # A real storage mutation invalidates locations and item membership. Simple
+    # navigation, empty selection and cancelled dialogs keep the current cache.
+    needs_refresh=1
   done
 }
 
