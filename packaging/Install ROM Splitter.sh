@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROMS_DIR="${ROMS_ROOT:-/roms}"
 INSTALL_DIR="$ROMS_DIR/tools/.rom-splitter"
 EXPECTED_SHA256=""
+CONFIG_BACKUP=""
+cleanup() {
+  [[ -z "$CONFIG_BACKUP" ]] || rm -f -- "$CONFIG_BACKUP"
+}
+trap cleanup EXIT
 
 archive=""
 for candidate in "$SCRIPT_DIR"/ROM-Splitter-*.zip "$SCRIPT_DIR"/ROM\ Splitter*.zip; do
@@ -31,7 +36,14 @@ if [[ ! -w "$INSTALL_DIR" ]]; then
   sudo chown "$(id -u):$(id -g)" "$INSTALL_DIR"
 fi
 
+if [[ -f "$INSTALL_DIR/config/roms2.conf" ]]; then
+  CONFIG_BACKUP="$(mktemp "${TMPDIR:-/tmp}/rom-splitter-config.XXXXXX")"
+  cp -- "$INSTALL_DIR/config/roms2.conf" "$CONFIG_BACKUP"
+fi
 unzip -q -o "$archive" -d "$INSTALL_DIR"
+if [[ -n "$CONFIG_BACKUP" ]]; then
+  cp -- "$CONFIG_BACKUP" "$INSTALL_DIR/config/roms2.conf"
+fi
 [[ -f "$INSTALL_DIR/install.sh" && -f "$INSTALL_DIR/roms2-manager.sh" ]] || {
   printf 'Invalid or incomplete ROM Splitter package.\n' >&2
   exit 1

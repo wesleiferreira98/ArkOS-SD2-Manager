@@ -1,191 +1,247 @@
-# ROM Splitter — dArkOS Dual Storage Manager
+# ROM Splitter — ArkOS/dArkOS Dual Storage Manager
 
-A proof-of-concept and usable first implementation for distributing ROMs between the dArkOS primary ROM partition (`/roms`) and a second microSD card (`/roms2`) while keeping EmulationStation paths unchanged.
+ROM Splitter distributes games between the primary ROM partition (`/roms`) and a second microSD card (`/roms2`) without changing the paths used by EmulationStation or emulators.
 
-## Core idea
+Games stored physically on SD2 are bind-mounted back to their original `/roms/<system>/<game>` locations. If SD2 is absent, the console and games remaining on SD1 continue to work normally.
 
-A ROM physically stored on SD2 is bind-mounted back to its original `/roms/<system>/<game>` path. EmulationStation and emulators continue to see the normal `/roms` tree.
+> **Pre-release warning:** version 0.2.0 has automated local tests but still requires validation on real handheld hardware. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
 
-## Features implemented
+## Features
 
-- Detects candidate secondary storage devices dynamically.
-- Refuses to format devices containing `/`, `/boot`, or `/roms`.
-- Prepares the second card as exFAT with label `ROMS2`.
-- Mounts SD2 at `/roms2`.
-- Reads systems from `/etc/emulationstation/es_systems.cfg`.
-- Lists games/items and shows SD1/SD2 location.
-- Moves individual files, directories or multiple selected games SD1 -> SD2 and SD2 -> SD1.
-- Groups `.cue` files with their referenced tracks and `.m3u` playlists with all referenced discs.
-- Checks free space before transfers.
-- Verifies copied size before deleting the source.
-- Uses bind mounts so EmulationStation still sees `/roms`.
-- Stores a manifest on SD2 and rebuilds binds after boot.
-- Includes repair/diagnostics and safe unmount.
-- Discovers games copied directly to SD2 and creates their SD1 links.
-- Uses `dialog` when available, with terminal fallback.
-- Preserves `gamelist.xml`, images and media by excluding them from normal game selection.
+- Detects candidate secondary storage devices and protects devices containing `/`, `/boot`, or `/roms`.
+- Prepares SD2 as exFAT with the `ROMS2` label and mounts it at `/roms2`.
+- Reads systems from EmulationStation and shows game size and SD1/SD2 location.
+- Transfers one or multiple files/directories with free-space checks, SHA-256 verification and rollback on failure.
+- Restores bind mounts automatically after boot using a manifest stored on SD2.
+- Groups CUE tracks, M3U multidisc sets and matching PortMaster launcher/directories.
+- Discovers games copied directly to SD2 from a computer or over the network.
+- Provides diagnostics, mount repair and safe unmount operations.
+- Supports built-in handheld controls through `oga_controls`, with keyboard fallback.
+- Leaves `gamelist.xml`, artwork and media out of normal game transfers.
 
-## Important safety status
+## Supported controls
 
-This is an early version. The bind-mount concept has been validated manually on dArkOS, but the formatting and automated migration paths should still be tested on expendable media first.
-
-The formatter contains multiple safeguards, but any partitioning/formatting feature deserves extra caution. Test with the 64 GB card before using a new 128/256 GB card.
-
-## Dependencies
-
-Expected on dArkOS or installable:
-
-- bash
-- util-linux (`lsblk`, `findmnt`, `mount`, `blkid`)
-- exfatprogs (`mkfs.exfat`)
-- parted
-- rsync (recommended)
-- dialog or whiptail (recommended)
-- `oga_controls` (recommended on ArkOS/dArkOS for built-in gamepad navigation)
-
-## Handheld controls
-
-When launched on a supported ArkOS/dArkOS handheld, ROM Splitter looks for the existing `oga_controls` mapper and translates the built-in controls for the terminal UI:
-
-Automatic profile detection covers Anbernic RG351/RG353/RG503, R35S, R36S, R36H, RGB10, RK2020, OGA, OGS and GameForce devices.
+Automatic controller profile detection covers Anbernic RG351/RG353/RG503, R35S, R36S, R36H, RGB10, RK2020, OGA, OGS and GameForce devices.
 
 ```text
 D-Pad / analog stick  Navigate
 A                     Confirm
 B                     Previous screen / cancel
-X                     Mark an item in a checklist
+X                     Mark or unmark a checklist item
 START                 Previous screen
 ```
 
-Pressing B closes only the current screen. On the main menu it keeps the application open; use the explicit `Exit` option to close ROM Splitter.
+B closes only the current screen. On the main menu, exit using the explicit `Exit` option. The active input backend is displayed under `Diagnostics`.
 
-Keyboard navigation remains available as a fallback. The active input backend is shown on the Diagnostics screen. If automatic device detection fails, a launcher may set `ROMS2_OGA_PROFILE` to one of `anbernic`, `chi`, `oga`, `ogs`, or `rk2020`.
+If device detection fails, set `ROMS2_OGA_PROFILE` in the launcher to `anbernic`, `chi`, `oga`, `ogs`, or `rk2020`.
 
-## Install
+## Requirements
 
-Copy the entire `roms2-manager` folder onto the console, for example:
+The following commands are expected on ArkOS/dArkOS:
 
-```bash
-scp -r roms2-manager ark@CONSOLE_IP:/home/ark/
+- Bash
+- util-linux: `lsblk`, `findmnt`, `mount`, `blkid`
+- `unzip`
+- `sha256sum`
+- `rsync` (recommended; `cp` is the fallback)
+- `dialog` or `whiptail` (recommended)
+- `oga_controls` (recommended for built-in gamepad input)
+- `parted` and `mkfs.exfat` from exfatprogs (required only to format SD2)
+
+Administrative operations use `sudo` when the manager is not running as root.
+
+## Install the release package
+
+The release contains two files:
+
+```text
+ROM-Splitter-0.2.0.zip
+Install ROM Splitter.sh
 ```
 
-Then:
+1. Copy both files to the console's `/roms/tools` directory. This can be done by inserting SD1 into a computer, using SCP/SFTP, or using a file manager on the console.
+2. Refresh or restart EmulationStation.
+3. Open `Tools` and run `Install ROM Splitter`.
+4. Wait for the success message.
+5. Refresh or restart EmulationStation again.
+6. Open `Tools > ROM Splitter`.
 
-```bash
-ssh ark@CONSOLE_IP
-cd ~/roms2-manager
-chmod +x install.sh
-./install.sh
+The package installer verifies the ZIP checksum before extraction and installs the application at:
+
+```text
+/roms/tools/.rom-splitter
 ```
 
-The installer creates:
+It creates launchers at:
 
 ```text
 /roms/tools/ROM Splitter.sh
 /opt/system/Tools/ROM Splitter.sh
+```
+
+It also installs the boot restoration service:
+
+```text
 /etc/systemd/system/roms2-manager.service
 ```
 
-The `/roms/tools` launcher allows EmulationStation to discover and start ROM Splitter from its Tools interface. The `/opt/system/Tools` launcher is retained for ArkOS/dArkOS variants that use the system tools directory. After refreshing or restarting EmulationStation, `ROM Splitter` should be available in Tools.
+## Install from source
 
-## Distribution package
-
-Build the portable release on a development computer with:
+Copy or clone the project onto the console, then run:
 
 ```bash
-chmod +x scripts/build-release.sh
-./scripts/build-release.sh
+chmod +x install.sh
+./install.sh
 ```
 
-This creates:
+The generated launchers point to the source directory, so do not move or delete that directory after installation.
+
+## First safe test
+
+1. Use an empty or expendable microSD card.
+2. Start ROM Splitter from EmulationStation's Tools screen.
+3. Open `Diagnostics` and confirm that the controller backend and SD1 information look correct.
+4. Insert SD2 and open `Storage information`.
+5. If SD2 is already exFAT and labeled `ROMS2`, select `Mount SD2`.
+6. Move one small, nonessential, single-file game to SD2.
+7. Launch the game from EmulationStation.
+8. Reboot and launch it again to test boot-time mount restoration.
+9. Restore the game to SD1 before testing larger batches.
+
+Do not use `Prepare/format SD2` until device detection has been checked carefully.
+
+## Prepare a new SD2 card
+
+`Prepare/format SD2` performs the following destructive operation:
 
 ```text
-dist/ROM-Splitter-0.2.0.zip
-dist/Install ROM Splitter.sh
+create GPT partition table
+create one exFAT partition
+label the partition ROMS2
+save its UUID
+mount it at /roms2
 ```
 
-Copy both files into `/roms/tools` on the handheld and run `Install ROM Splitter.sh` from the Tools interface. It installs the application under `/roms/tools/.rom-splitter` and creates the normal `ROM Splitter.sh` launcher. Keep the ZIP beside the installer until installation finishes.
+The manager excludes detected system and ROM devices and asks for confirmation. Nevertheless, verify the displayed device name and capacity before confirming. All existing data on the selected device will be lost.
 
-## First test
+## Move games between cards
 
-1. Insert the expendable 64 GB card.
-2. Start ROM Splitter.
-3. Use `Mount SD2` if the card is already exFAT/ROMS2.
-4. Choose `Manage games`.
-5. Select Atari 2600 -> Enduro.
-6. Move it to SD2.
-7. Exit and run Enduro from EmulationStation.
-8. Reboot the console and verify Enduro still launches; this validates the boot restoration service.
+1. Open `Manage games`.
+2. Select a system.
+3. Use X to mark one or more games.
+4. Press A to continue.
+5. Review the game count, item count, total size and destination.
+6. Confirm the operation.
 
-## Safe demo mode
+SD1 games are moved to SD2; SD2 games are restored to SD1. A batch must contain games from only one storage location. The source is not removed until copying and verification succeed.
 
-To preview the interface, grouped games and batch transfers without a real SD card or root access:
+## CUE and multidisc games
+
+A `.cue` file and every local track referenced by its `FILE` statements are treated as one logical game. An `.m3u` playlist and every referenced disc or nested CUE set are also treated as one game.
+
+```text
+Final Fantasy VII.m3u
+Final Fantasy VII (Disc 1).chd
+Final Fantasy VII (Disc 2).chd
+Final Fantasy VII (Disc 3).chd
+```
+
+Missing references, absolute paths and references escaping the current system directory are rejected before transfer.
+
+## PortMaster games
+
+In `/roms/ports`, a top-level launcher and its matching directory are grouped automatically:
+
+```text
+Celeste.sh + celeste/
+Stardew Valley.sh + stardewvalley/
+Half-Life.sh + half-life/
+```
+
+Matching ignores case, spaces, hyphens, underscores and punctuation. If more than one directory matches, ROM Splitter reports an ambiguity instead of guessing. A launcher without a matching directory remains an individual item.
+
+## Games copied directly to SD2
+
+Files may be copied directly to SD2 using a computer, SCP/SFTP or a network share. Keep the same system layout used by SD1:
+
+```text
+/roms2/psx/New Game.chd
+/roms2/dreamcast/Game.cue
+/roms2/ports/Celeste.sh
+/roms2/ports/celeste/
+```
+
+After inserting and mounting SD2:
+
+1. Open ROM Splitter.
+2. Select `Scan SD2 for new games`.
+3. Review the number of linked items, conflicts and failures.
+4. Refresh the EmulationStation game list if necessary.
+
+New items are added to the SD2 manifest and bind-mounted at their matching `/roms` paths. If a real SD1 item already occupies a path, it is reported as a conflict and neither copy is changed. Hidden files, metadata/media directories and `/roms2/tools` are ignored.
+
+## Diagnostics and repair
+
+Use `Diagnostics` to inspect SD1, SD2, the configured card, manifest entry count and controller backend.
+
+Use `Repair/rebuild bind mounts` when files exist on SD2 but are not visible under `/roms`. The boot restoration script can also be run manually:
+
+```bash
+sudo /roms/tools/.rom-splitter/boot/roms2-mount.sh
+```
+
+Logs are stored at:
+
+```text
+/roms/tools/.rom-splitter/logs/roms2-manager.log
+```
+
+## Safely remove SD2
+
+Close any running game stored on SD2, open ROM Splitter, and select `Safely unmount SD2`. Remove the card only after the success message. Games stored on SD2 remain unavailable until the card is reinserted and mounts are rebuilt.
+
+## Update
+
+Copy the new ZIP and its matching `Install ROM Splitter.sh` into `/roms/tools`, then run the installer again. Existing configuration and SD2 data are preserved. Always use the installer distributed with that exact ZIP because it contains the expected package checksum.
+
+## Uninstall
+
+Run:
+
+```bash
+/roms/tools/.rom-splitter/uninstall.sh
+```
+
+This removes both launchers and the boot service. It does not delete games, the SD2 manifest, or data from either card. The hidden application directory may be removed manually after uninstalling if its logs and configuration are no longer needed.
+
+## Demo mode
+
+On a desktop Linux system, preview the UI and simulated transfers without root access or real storage devices:
 
 ```bash
 chmod +x roms2-manager.sh
 ./roms2-manager.sh --demo
 ```
 
-Demo data is created under `/tmp/roms2-manager-demo`. Formatting is disabled in this mode. Remove that directory to reset the demo.
+Demo files are created under `/tmp/roms2-manager-demo`. Formatting is disabled. Delete that directory to reset the demo.
 
-## Manifest
+## Build a release
 
-The second card stores:
+On the development computer:
+
+```bash
+chmod +x scripts/build-release.sh
+./scripts/build-release.sh
+```
+
+The generated files are placed in `dist/`. Update `VERSION` before building a new release.
+
+## Internal storage layout
+
+SD2 stores the persistent bind manifest at:
 
 ```text
 /roms2/.roms2-manifest.tsv
 ```
 
-Example:
-
-```text
-atari2600/Enduro (USA).zip\tfile
-psx/Some Game.chd\tfile
-ports/SomePort\tdir
-```
-
-The boot script uses this list to recreate bind mounts.
-
-## Multi-file games
-
-The manager treats `.cue` and `.m3u` entries as logical games. Referenced tracks, discs and nested CUE descriptors are transferred and verified together. Missing references and paths that escape the system directory are rejected before a transfer starts.
-
-## PortMaster games
-
-In `/roms/ports`, a top-level launcher and its matching directory are treated as one logical game:
-
-```text
-Celeste.sh + celeste/               -> Celeste
-Stardew Valley.sh + stardewvalley/ -> Stardew Valley
-```
-
-Matching ignores case, spaces, hyphens and other punctuation. The launcher remains the visible item and the companion directory is transferred, verified and restored with it. An ambiguous directory match is rejected instead of guessing.
-
-## Recovery
-
-If a bind is missing:
-
-```bash
-cd ~/roms2-manager
-sudo ./boot/roms2-mount.sh
-```
-
-Or use `Repair/rebuild bind mounts` from the interface.
-
-## Games copied directly to SD2
-
-After copying games to the second card from a computer or over the network, insert/mount the card and choose `Scan SD2 for new games`. ROM Splitter scans each system directory under `/roms2`, registers new top-level files or game directories, and bind-mounts them at the equivalent `/roms` path.
-
-If the same path already contains a real SD1 item, it is reported as a conflict and neither copy is changed. Hidden files, metadata/media directories and `/roms2/tools` are not imported as games.
-
-If SD2 is removed, SD1 remains bootable. Items physically stored on SD2 are unavailable until SD2 is inserted and mounts are rebuilt.
-
-## Uninstall
-
-```bash
-cd ~/roms2-manager
-chmod +x uninstall.sh
-./uninstall.sh
-```
-
-This removes only the launcher and boot service. It does not delete ROMs from either card.
+At boot, `roms2-manager.service` mounts the configured SD2 by UUID and recreates every registered bind mount. The absence of SD2 does not prevent normal SD1 startup.
