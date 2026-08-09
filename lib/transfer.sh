@@ -210,9 +210,8 @@ move_to_sd2() {
   show_finalizing_transfer "Creating the SD2 link and safely removing the SD1 source..."
   local backup="${src}.roms2-tmp-backup"
   mv -- "$src" "$backup"
-  if [[ "$kind" == "dir" ]]; then mkdir -p "$src"; else : > "$src"; fi
 
-  if ! bind_item "$dst" "$src"; then
+  if ! bind_item "$dst" "$src" "$rel"; then
     rm -rf -- "$src" 2>/dev/null || true
     mv -- "$backup" "$src"
     rm -rf -- "$dst"
@@ -244,13 +243,13 @@ move_to_sd1() {
 
   copy_with_progress "$src" "$dst" "Moving to SD1" || {
     rm -rf -- "$dst"
-    bind_item "$src" "$dst" || true
+    bind_item "$src" "$dst" "$rel" || true
     fail "Copy was cancelled or failed. SD2 copy was preserved."
     return 1
   }
   if ! verify_copy_with_progress "$src" "$dst" "Verifying SD1 copy"; then
     rm -rf -- "$dst"
-    bind_item "$src" "$dst" || true
+    bind_item "$src" "$dst" "$rel" || true
     fail "Copy verification failed. SD2 copy was preserved."
     return 1
   fi

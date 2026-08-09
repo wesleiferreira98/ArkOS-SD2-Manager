@@ -8,4 +8,4 @@ source "$BASE_DIR/lib/mount.sh"
 source "$BASE_DIR/lib/games.sh"
 source "$BASE_DIR/lib/groups.sh"
 ensure_runtime_dirs
-rebuild_binds
+activate_inserted_sd2

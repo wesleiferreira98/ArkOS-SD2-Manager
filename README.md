@@ -6,7 +6,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release history and known limitations.
 
 Games stored physically on SD2 are bind-mounted back to their original `/roms/<system>/<game>` locations. If SD2 is absent, the console and games remaining on SD1 continue to work normally.
 
-> **Beta warning:** version 0.4.4-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
+> **Beta warning:** version 0.5.0-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
 
 ## Features
 
@@ -17,6 +17,7 @@ Games stored physically on SD2 are bind-mounted back to their original `/roms/<s
 - Transfers one or multiple files/directories with free-space checks, SHA-256 verification and rollback on failure.
 - Permanently deletes selected games from SD1 or SD2 after an explicit confirmation.
 - Restores bind mounts automatically after boot using a manifest stored on SD2.
+- Supports safely switching between multiple SD2 cards using UUID-based local profiles.
 - Groups CUE tracks, M3U multidisc sets and matching PortMaster launcher/directories.
 - Discovers games copied directly to SD2 from a computer or over the network.
 - Provides diagnostics, mount repair and safe unmount operations.
@@ -59,7 +60,7 @@ Administrative operations use `sudo` when the manager is not running as root.
 The release contains two files:
 
 ```text
-ROM-Splitter-0.4.4-beta.zip
+ROM-Splitter-0.5.0-beta.zip
 Install ROM Splitter.sh
 ```
 
@@ -219,6 +220,19 @@ Logs are stored at:
 ## Safely remove SD2
 
 Close any running game stored on SD2, open ROM Splitter, and select `Safely unmount SD2`. Remove the card only after the success message. Games stored on SD2 remain unavailable until the card is reinserted and mounts are rebuilt.
+
+## Switch between SD2 cards
+
+Each SD2 keeps its own `.roms2-manifest.tsv`, and ROM Splitter stores a matching local profile identified by the filesystem UUID.
+
+1. Close every running game from SD2.
+2. Select `Activate/switch SD2 card`.
+3. Wait until the current card is reported as safely deactivated.
+4. Remove it and insert the desired card while the confirmation dialog remains open.
+5. Choose `Yes` to mount the inserted card and rebuild its links.
+6. Review the number of links, conflicts and missing items reported by ROM Splitter.
+
+Never physically replace a mounted card. A real file or non-empty directory already present at the same SD1 path is treated as a conflict and is never overwritten or hidden. Games copied manually to a new card can be registered afterward using `Scan SD2 for new games`.
 
 ## Update
 

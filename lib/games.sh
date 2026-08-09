@@ -31,6 +31,79 @@ manifest_cache_file() {
   printf '%s/roms2-manifest.tsv\n' "$STATE_DIR"
 }
 
+card_profiles_dir() {
+  printf '%s/cards\n' "$STATE_DIR"
+}
+
+safe_card_id() {
+  local card_id="$1"
+  printf '%s' "$card_id" | tr -cd '[:alnum:]._-'
+}
+
+card_profile_manifest() {
+  local card_id
+  card_id="$(safe_card_id "$1")"
+  [[ -n "$card_id" ]] || return 1
+  printf '%s/%s.manifest.tsv\n' "$(card_profiles_dir)" "$card_id"
+}
+
+active_card_file() {
+  printf '%s/active-card\n' "$STATE_DIR"
+}
+
+active_binds_file() {
+  printf '%s/active-binds.tsv\n' "$STATE_DIR"
+}
+
+active_card_id() {
+  local file
+  file="$(active_card_file)"
+  [[ -s "$file" ]] && head -n1 "$file"
+}
+
+known_card_profiles_count() {
+  local profiles
+  profiles="$(card_profiles_dir)"
+  [[ -d "$profiles" ]] || { printf '0\n'; return; }
+  find "$profiles" -maxdepth 1 -type f -name '*.manifest.tsv' -printf . | wc -c
+}
+
+set_active_card_id() {
+  local card_id="$1" file
+  file="$(active_card_file)"
+  mkdir -p "$STATE_DIR" "$(card_profiles_dir)"
+  printf '%s\n' "$card_id" > "$file"
+}
+
+clear_active_card_id() {
+  rm -f -- "$(active_card_file)"
+}
+
+active_bind_add() {
+  local card_id="$1" rel="$2" kind="$3" registry
+  registry="$(active_binds_file)"
+  validate_manifest_rel "$rel" || return 1
+  mkdir -p "$STATE_DIR"
+  touch "$registry"
+  awk -F '\t' -v r="$rel" '$2 != r' "$registry" > "$registry.tmp"
+  printf '%s\t%s\t%s\n' "$card_id" "$rel" "$kind" >> "$registry.tmp"
+  mv "$registry.tmp" "$registry"
+}
+
+active_bind_remove() {
+  local rel="$1" registry
+  registry="$(active_binds_file)"
+  [[ -f "$registry" ]] || return 0
+  awk -F '\t' -v r="$rel" '$2 != r' "$registry" > "$registry.tmp"
+  mv "$registry.tmp" "$registry"
+}
+
+active_bind_contains() {
+  local rel="$1" registry
+  registry="$(active_binds_file)"
+  [[ -f "$registry" ]] && awk -F '\t' -v r="$rel" '$2 == r { found=1; exit } END { exit !found }' "$registry"
+}
+
 validate_manifest_rel() {
   local rel="$1"
   [[ -n "$rel" && "$rel" != /* && "$rel" != *$'\t'* && "$rel" != *$'\n'* ]] || return 1
@@ -38,10 +111,17 @@ validate_manifest_rel() {
 }
 
 sync_manifest_cache() {
-  local manifest="$ROMS2_ROOT/.roms2-manifest.tsv" cache
+  local manifest="$ROMS2_ROOT/.roms2-manifest.tsv" cache card_id profile
   cache="$(manifest_cache_file)"
-  mkdir -p "$STATE_DIR"
-  [[ -f "$manifest" ]] && cp -f -- "$manifest" "$cache"
+  mkdir -p "$STATE_DIR" "$(card_profiles_dir)"
+  if [[ -f "$manifest" ]]; then
+    cp -f -- "$manifest" "$cache"
+    card_id="$(active_card_id || true)"
+    if [[ -n "$card_id" ]]; then
+      profile="$(card_profile_manifest "$card_id")"
+      cp -f -- "$manifest" "$profile"
+    fi
+  fi
 }
 
 manifest_contains() {
@@ -78,6 +158,7 @@ manifest_remove() {
   [[ -f "$manifest" ]] || return 0
   awk -F '\t' -v r="$rel" '$1 != r' "$manifest" > "$manifest.tmp"
   mv "$manifest.tmp" "$manifest"
+  active_bind_remove "$rel"
   sync_manifest_cache
 }
 

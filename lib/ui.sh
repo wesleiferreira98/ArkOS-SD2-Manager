@@ -257,6 +257,8 @@ show_diagnostics() {
   text+="ROMS mount: $(findmnt -n -o SOURCE,FSTYPE "$ROMS_ROOT" 2>/dev/null || echo missing)\n"
   text+="ROMS2 mount: $(findmnt -n -o SOURCE,FSTYPE "$ROMS2_ROOT" 2>/dev/null || echo not-mounted)\n"
   text+="Configured SD2: $(sd2_info)\n"
+  text+="Active card profile: $(active_card_id 2>/dev/null || echo none)\n"
+  text+="Known card profiles: $(known_card_profiles_count)\n"
   text+="Manifest entries: $(manifest_list 2>/dev/null | wc -l)\n"
   text+="Controls: ${CONTROLS_BACKEND:-keyboard}\n"
   ui_msg "Diagnostics" "$text"
@@ -270,6 +272,31 @@ scan_sd2_for_new_games() {
   fi
 }
 
+switch_sd2_ui() {
+  local old_card new_card
+  old_card="$(active_card_id || true)"
+
+  if findmnt -rn "$ROMS2_ROOT" >/dev/null 2>&1 || [[ -n "$old_card" ]]; then
+    if ! unmount_sd2; then
+      ui_msg "Switch SD2" "The current card could not be safely deactivated. Check the log and do not remove it."
+      return 1
+    fi
+  fi
+
+  ui_yesno "Switch SD2" \
+    "The previous SD2 is safely deactivated.\n\nRemove it, insert the desired ROMS2 card, then choose Yes to activate its profile.\n\nChoose No to leave SD2 disconnected." || return 0
+
+  ui_infobox "Switch SD2" "Detecting the inserted card and rebuilding its game links..."
+  if activate_inserted_sd2; then
+    new_card="$(active_card_id || true)"
+    ui_msg "Switch SD2" \
+      "Active card: ${new_card:-unknown}\nLinks created: $SWITCH_BOUND\nConflicts skipped: $SWITCH_CONFLICTS\nMissing items: $SWITCH_MISSING"
+  else
+    ui_msg "Switch SD2" "The inserted ROMS2 card could not be activated. No SD1 game was overwritten. Check the log."
+    return 1
+  fi
+}
+
 main_menu() {
   while true; do
     local choice
@@ -278,7 +305,7 @@ main_menu() {
       "2" "Storage information" \
       "3" "Prepare/format SD2" \
       "4" "Repair/rebuild bind mounts" \
-      "5" "Mount SD2" \
+      "5" "Activate/switch SD2 card" \
       "6" "Safely unmount SD2" \
       "7" "Diagnostics" \
       "8" "Scan SD2 for new games" \
@@ -292,7 +319,7 @@ main_menu() {
       2) show_storage_info ;;
       3) format_sd2_ui ;;
       4) repair_storage && ui_msg "Repair" "Bind mounts rebuilt." || ui_msg "Repair" "Repair failed. Check logs." ;;
-      5) mount_sd2 && ui_msg "SD2" "Mounted at $ROMS2_ROOT." || ui_msg "SD2" "Mount failed." ;;
+      5) switch_sd2_ui ;;
       6) unmount_sd2 && ui_msg "SD2" "Unmounted safely." || ui_msg "SD2" "Unmount failed." ;;
       7) show_diagnostics ;;
       8) scan_sd2_for_new_games ;;
