@@ -12,6 +12,7 @@ build/
 develop-eggs/
 dist/
 downloads/
+CHANGELOG.md
 eggs/
 .eggs/
 lib64/
@@ -219,3 +220,6 @@ Requsitos.md
 
 # Release artifacts
 dist/
+.codex
+.claude/
+.vscode/

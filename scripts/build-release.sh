@@ -15,7 +15,7 @@ command -v zip >/dev/null 2>&1 || { printf 'zip is required to build a release.\
 
 mkdir -p "$DIST_DIR" "$STAGE_DIR/config" "$STAGE_DIR/boot" "$STAGE_DIR/lib"
 rm -f -- "$DIST_DIR/ROM-Splitter-$VERSION.zip" "$DIST_DIR/Install ROM Splitter.sh"
-cp "$BASE_DIR/VERSION" "$BASE_DIR/README.md" "$BASE_DIR/LICENSE" \
+cp "$BASE_DIR/VERSION" "$BASE_DIR/README.md" "$BASE_DIR/CHANGELOG.md" "$BASE_DIR/LICENSE" \
   "$BASE_DIR/install.sh" "$BASE_DIR/uninstall.sh" "$BASE_DIR/roms2-manager.sh" "$STAGE_DIR/"
 cp "$BASE_DIR/config/roms2.conf" "$BASE_DIR/config/oga_controls_settings.txt" "$STAGE_DIR/config/"
 cp "$BASE_DIR/boot/roms2-mount.sh" "$STAGE_DIR/boot/"

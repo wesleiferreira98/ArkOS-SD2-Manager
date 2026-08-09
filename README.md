@@ -2,6 +2,8 @@
 
 ROM Splitter distributes games between the primary ROM partition (`/roms`) and a second microSD card (`/roms2`) without changing the paths used by EmulationStation or emulators.
 
+See [CHANGELOG.md](CHANGELOG.md) for release history and known limitations.
+
 Games stored physically on SD2 are bind-mounted back to their original `/roms/<system>/<game>` locations. If SD2 is absent, the console and games remaining on SD1 continue to work normally.
 
 > **Pre-release warning:** version 0.2.0 has automated local tests but still requires validation on real handheld hardware. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
