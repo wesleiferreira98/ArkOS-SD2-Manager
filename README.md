@@ -21,6 +21,7 @@ A ROM physically stored on SD2 is bind-mounted back to its original `/roms/<syst
 - Uses bind mounts so EmulationStation still sees `/roms`.
 - Stores a manifest on SD2 and rebuilds binds after boot.
 - Includes repair/diagnostics and safe unmount.
+- Discovers games copied directly to SD2 and creates their SD1 links.
 - Uses `dialog` when available, with terminal fallback.
 - Preserves `gamelist.xml`, images and media by excluding them from normal game selection.
 
@@ -87,6 +88,24 @@ The installer creates:
 
 The `/roms/tools` launcher allows EmulationStation to discover and start ROM Splitter from its Tools interface. The `/opt/system/Tools` launcher is retained for ArkOS/dArkOS variants that use the system tools directory. After refreshing or restarting EmulationStation, `ROM Splitter` should be available in Tools.
 
+## Distribution package
+
+Build the portable release on a development computer with:
+
+```bash
+chmod +x scripts/build-release.sh
+./scripts/build-release.sh
+```
+
+This creates:
+
+```text
+dist/ROM-Splitter-0.2.0.zip
+dist/Install ROM Splitter.sh
+```
+
+Copy both files into `/roms/tools` on the handheld and run `Install ROM Splitter.sh` from the Tools interface. It installs the application under `/roms/tools/.rom-splitter` and creates the normal `ROM Splitter.sh` launcher. Keep the ZIP beside the installer until installation finishes.
+
 ## First test
 
 1. Insert the expendable 64 GB card.
@@ -152,6 +171,12 @@ sudo ./boot/roms2-mount.sh
 ```
 
 Or use `Repair/rebuild bind mounts` from the interface.
+
+## Games copied directly to SD2
+
+After copying games to the second card from a computer or over the network, insert/mount the card and choose `Scan SD2 for new games`. ROM Splitter scans each system directory under `/roms2`, registers new top-level files or game directories, and bind-mounts them at the equivalent `/roms` path.
+
+If the same path already contains a real SD1 item, it is reported as a conflict and neither copy is changed. Hidden files, metadata/media directories and `/roms2/tools` are not imported as games.
 
 If SD2 is removed, SD1 remains bootable. Items physically stored on SD2 are unavailable until SD2 is inserted and mounts are rebuilt.
 

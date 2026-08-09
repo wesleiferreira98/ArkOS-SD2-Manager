@@ -216,3 +216,38 @@ repair_storage() {
     fi
   done < "$manifest"
 }
+
+IMPORT_ADDED=0
+IMPORT_CONFLICTS=0
+IMPORT_FAILED=0
+
+import_new_sd2_items() {
+  mount_sd2 || return 1
+  IMPORT_ADDED=0
+  IMPORT_CONFLICTS=0
+  IMPORT_FAILED=0
+
+  local rel src dst kind
+  while IFS= read -r -d '' rel; do
+    src="$ROMS2_ROOT/$rel"
+    dst="$ROMS_ROOT/$rel"
+    kind=file; [[ -d "$src" ]] && kind=dir
+
+    if [[ -e "$dst" || -L "$dst" ]]; then
+      log "SD2 import conflict, SD1 path already exists: $rel"
+      IMPORT_CONFLICTS=$((IMPORT_CONFLICTS+1))
+      continue
+    fi
+
+    if bind_item "$src" "$dst"; then
+      manifest_add "$rel" "$kind"
+      IMPORT_ADDED=$((IMPORT_ADDED+1))
+      log "Imported new SD2 item: $rel"
+    else
+      IMPORT_FAILED=$((IMPORT_FAILED+1))
+      log "Failed to import SD2 item: $rel"
+    fi
+  done < <(discover_unmanaged_sd2_items)
+
+  (( IMPORT_FAILED == 0 ))
+}

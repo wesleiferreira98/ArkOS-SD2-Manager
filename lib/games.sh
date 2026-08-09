@@ -4,9 +4,9 @@ set -Eeuo pipefail
 systems_from_es() {
   local cfg="/etc/emulationstation/es_systems.cfg"
   if [[ -r "$cfg" ]]; then
-    awk -F'[<>]' '/<path>\/roms\// {gsub("/roms/","",$3); gsub("/","",$3); if($3!="") print $3}' "$cfg" | sort -u
+    awk -F'[<>]' '/<path>\/roms\// {gsub("/roms/","",$3); gsub("/","",$3); if($3!="" && $3!="tools") print $3}' "$cfg" | sort -u
   else
-    find "$ROMS_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+    find "$ROMS_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name tools -printf '%f\n' | sort
   fi
 }
 
@@ -56,6 +56,7 @@ list_items_for_system() {
   find "$base" -mindepth 1 -maxdepth 1 \
     ! -name 'gamelist.xml' ! -name 'gamelist.xml.old' \
     ! -name 'images' ! -name 'media' ! -name '*.backup' \
+    ! -name '.*' \
     -printf '%f\n' | sort -f
 }
 
@@ -84,4 +85,19 @@ manifest_list() {
   local manifest="$ROMS2_ROOT/.roms2-manifest.tsv" cache
   cache="$(manifest_cache_file)"
   if [[ -f "$manifest" ]]; then cat "$manifest"; elif [[ -f "$cache" ]]; then cat "$cache"; fi
+}
+
+discover_unmanaged_sd2_items() {
+  local system_dir item rel
+  [[ -d "$ROMS2_ROOT" ]] || return 0
+
+  while IFS= read -r -d '' system_dir; do
+    [[ "$(basename "$system_dir")" != tools ]] || continue
+    while IFS= read -r -d '' item; do
+      rel="${item#"$ROMS2_ROOT/"}"
+      validate_manifest_rel "$rel" || { log "Skipped unsupported SD2 path: $rel"; continue; }
+      is_auxiliary_file "$(basename "$item")" && continue
+      manifest_contains "$rel" || printf '%s\0' "$rel"
+    done < <(find "$system_dir" -mindepth 1 -maxdepth 1 ! -name '.*' -print0)
+  done < <(find "$ROMS2_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print0)
 }

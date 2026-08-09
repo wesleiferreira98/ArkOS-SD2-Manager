@@ -163,6 +163,14 @@ show_diagnostics() {
   ui_msg "Diagnostics" "$text"
 }
 
+scan_sd2_for_new_games() {
+  if import_new_sd2_items; then
+    ui_msg "Scan SD2" "New items linked: $IMPORT_ADDED\nConflicts skipped: $IMPORT_CONFLICTS\nFailures: $IMPORT_FAILED\n\nNew games are now available under /roms."
+  else
+    ui_msg "Scan SD2" "New items linked: $IMPORT_ADDED\nConflicts skipped: $IMPORT_CONFLICTS\nFailures: $IMPORT_FAILED\n\nCheck the log for failed items."
+  fi
+}
+
 main_menu() {
   while true; do
     local choice
@@ -174,6 +182,7 @@ main_menu() {
       "5" "Mount SD2" \
       "6" "Safely unmount SD2" \
       "7" "Diagnostics" \
+      "8" "Scan SD2 for new games" \
       "0" "Exit")"; then
       # B/Escape at the root keeps the application open. Exit is explicit.
       continue
@@ -187,6 +196,7 @@ main_menu() {
       5) mount_sd2 && ui_msg "SD2" "Mounted at $ROMS2_ROOT." || ui_msg "SD2" "Mount failed." ;;
       6) unmount_sd2 && ui_msg "SD2" "Unmounted safely." || ui_msg "SD2" "Unmount failed." ;;
       7) show_diagnostics ;;
+      8) scan_sd2_for_new_games ;;
       0) break ;;
     esac
   done
