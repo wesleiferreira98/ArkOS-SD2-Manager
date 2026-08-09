@@ -1,0 +1,24 @@
+# ROM Splitter mapping for dialog/whiptail terminal interfaces.
+back = esc
+start = esc
+select = space
+a = enter
+b = esc
+x = space
+y = space
+l1 = up
+r1 = down
+up = up
+down = down
+left = left
+right = right
+left_analog_up = up
+left_analog_down = down
+left_analog_left = left
+left_analog_right = right
+right_analog_up = up
+right_analog_down = down
+right_analog_left = left
+right_analog_right = right
+deadzone_y = 2100
+deadzone_x = 1900
