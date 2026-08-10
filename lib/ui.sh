@@ -119,14 +119,33 @@ show_storage_info() {
 }
 
 choose_system() {
-  local opts=() s
-  while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done < <(systems_from_es)
+  local storage_filter="${1:-}" opts=() s prompt="Choose a system"
+  [[ -n "$storage_filter" ]] && prompt="Choose a system on $storage_filter"
+  if [[ -n "$storage_filter" ]]; then
+    while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done < <(systems_for_storage "$storage_filter")
+  else
+    while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done < <(systems_from_es)
+  fi
   ((${#opts[@]})) || return 1
-  ui_menu "ROM Splitter" "Choose a system" "${opts[@]}"
+  ui_menu "ROM Splitter" "$prompt" "${opts[@]}"
+}
+
+choose_storage() {
+  ui_menu "Browse by storage" "Choose which card to view" \
+    "SD1" "Primary ROM storage" \
+    "SD2" "Secondary ROM storage"
+}
+
+location_matches_storage() {
+  local location="$1" storage="$2"
+  case "$storage:$location" in
+    SD1:SD1|SD2:SD2|SD2:SD2-unmounted) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 manage_system() {
-  local system="$1" item loc size rel id selected_output scan_file scan_rc gauge_rc needs_refresh=1
+  local system="$1" storage_filter="${2:-}" item loc size rel id selected_output scan_file scan_rc gauge_rc needs_refresh=1
   local -a scan_pipeline_status opts=() games=()
   while true; do
     if ((needs_refresh)); then
@@ -147,6 +166,9 @@ manage_system() {
       fi
 
       while IFS= read -r -d '' item && IFS= read -r -d '' loc && IFS= read -r -d '' size; do
+        if [[ -n "$storage_filter" ]] && ! location_matches_storage "$loc" "$storage_filter"; then
+          continue
+        fi
         id=$((id+1))
         games[id]="$item"
         opts+=("$id" "$item | $loc | $size" "off")
@@ -155,7 +177,10 @@ manage_system() {
       needs_refresh=0
     fi
 
-    ((${#opts[@]})) || { ui_msg "ROM Splitter" "No items found in $system."; return; }
+    ((${#opts[@]})) || {
+      ui_msg "ROM Splitter" "No items found in $system${storage_filter:+ on $storage_filter}."
+      return
+    }
     local -a selected=()
     if ! selected_output="$(ui_checklist "$system" "Select one or more games" "${opts[@]}")"; then
       # B/Escape returns to the system list.
@@ -233,6 +258,25 @@ manage_games() {
   done
 }
 
+manage_games_by_storage() {
+  local storage sys
+  while storage="$(choose_storage)"; do
+    if [[ "$storage" == SD2 ]] && ! mount_sd2; then
+      ui_msg "SD2" "No configured ROMS2 card was found."
+      continue
+    fi
+
+    if ! systems_for_storage "$storage" | grep -q .; then
+      ui_msg "Browse by storage" "No managed games were found on $storage."
+      continue
+    fi
+
+    while sys="$(choose_system "$storage")"; do
+      manage_system "$sys" "$storage"
+    done
+  done
+}
+
 format_sd2_ui() {
   if [[ "${ROMS2_DEMO:-0}" == 1 ]]; then
     ui_msg "Demo mode" "Formatting is disabled in demo mode."
@@ -302,13 +346,14 @@ main_menu() {
     local choice
     if ! choice="$(ui_menu "ROM Splitter" "ArkOS Dual Storage Manager" \
       "1" "Manage games" \
-      "2" "Storage information" \
-      "3" "Prepare/format SD2" \
-      "4" "Repair/rebuild bind mounts" \
-      "5" "Activate/switch SD2 card" \
-      "6" "Safely unmount SD2" \
-      "7" "Diagnostics" \
-      "8" "Scan SD2 for new games" \
+      "2" "Manage games by storage" \
+      "3" "Storage information" \
+      "4" "Prepare/format SD2" \
+      "5" "Repair/rebuild bind mounts" \
+      "6" "Activate/switch SD2 card" \
+      "7" "Safely unmount SD2" \
+      "8" "Diagnostics" \
+      "9" "Scan SD2 for new games" \
       "0" "Exit")"; then
       # B/Escape at the root keeps the application open. Exit is explicit.
       continue
@@ -316,13 +361,14 @@ main_menu() {
 
     case "$choice" in
       1) manage_games ;;
-      2) show_storage_info ;;
-      3) format_sd2_ui ;;
-      4) repair_storage && ui_msg "Repair" "Bind mounts rebuilt." || ui_msg "Repair" "Repair failed. Check logs." ;;
-      5) switch_sd2_ui ;;
-      6) unmount_sd2 && ui_msg "SD2" "Unmounted safely." || ui_msg "SD2" "Unmount failed." ;;
-      7) show_diagnostics ;;
-      8) scan_sd2_for_new_games ;;
+      2) manage_games_by_storage ;;
+      3) show_storage_info ;;
+      4) format_sd2_ui ;;
+      5) repair_storage && ui_msg "Repair" "Bind mounts rebuilt." || ui_msg "Repair" "Repair failed. Check logs." ;;
+      6) switch_sd2_ui ;;
+      7) unmount_sd2 && ui_msg "SD2" "Unmounted safely." || ui_msg "SD2" "Unmount failed." ;;
+      8) show_diagnostics ;;
+      9) scan_sd2_for_new_games ;;
       0) break ;;
     esac
   done

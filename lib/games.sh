@@ -10,6 +10,37 @@ systems_from_es() {
   fi
 }
 
+systems_for_storage() {
+  local storage="$1" system item rel
+  local -A managed=() systems=()
+
+  while IFS=$'\t' read -r rel _; do
+    [[ -n "$rel" ]] || continue
+    managed["$rel"]=1
+    if [[ "$storage" == SD2 ]]; then
+      system="${rel%%/*}"
+      [[ -n "$system" && "$system" != tools ]] && systems["$system"]=1
+    fi
+  done < <(manifest_list)
+
+  if [[ "$storage" == SD1 ]]; then
+    while IFS= read -r system; do
+      [[ -n "$system" ]] || continue
+      while IFS= read -r item; do
+        [[ -n "$item" ]] || continue
+        rel="$system/$item"
+        if [[ -z "${managed[$rel]+x}" && -e "$ROMS_ROOT/$rel" ]]; then
+          systems["$system"]=1
+          break
+        fi
+      done < <(list_items_for_system "$system")
+    done < <(systems_from_es)
+  fi
+
+  ((${#systems[@]})) && printf '%s\n' "${!systems[@]}" | sort -f
+  return 0
+}
+
 item_location() {
   local rel="$1"
   if [[ "${ROMS2_DEMO:-0}" == 1 && -L "$ROMS_ROOT/$rel" ]]; then

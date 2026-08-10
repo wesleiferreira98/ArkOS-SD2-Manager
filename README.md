@@ -6,13 +6,14 @@ See [CHANGELOG.md](CHANGELOG.md) for release history and known limitations.
 
 Games stored physically on SD2 are bind-mounted back to their original `/roms/<system>/<game>` locations. If SD2 is absent, the console and games remaining on SD1 continue to work normally.
 
-> **Beta warning:** version 0.5.0-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
+> **Beta warning:** version 0.6.0-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
 
 ## Features
 
 - Detects candidate secondary storage devices and protects devices containing `/`, `/boot`, or `/roms`.
 - Prepares SD2 as exFAT with the `ROMS2` label and mounts it at `/roms2`.
 - Reads systems from EmulationStation and shows game size and SD1/SD2 location.
+- Browses games by physical storage using the flow SD1/SD2 → system → games.
 - Displays progressive scan feedback whenever a system game list is built or refreshed.
 - Transfers one or multiple files/directories with free-space checks, SHA-256 verification and rollback on failure.
 - Permanently deletes selected games from SD1 or SD2 after an explicit confirmation.
@@ -60,7 +61,7 @@ Administrative operations use `sudo` when the manager is not running as root.
 The release contains two files:
 
 ```text
-ROM-Splitter-0.5.0-beta.zip
+ROM-Splitter-0.6.0-beta.zip
 Install ROM Splitter.sh
 ```
 
@@ -140,6 +141,18 @@ The manager excludes detected system and ROM devices and asks for confirmation. 
 7. Confirm the operation.
 
 SD1 games are moved to SD2; SD2 games are restored to SD1. A batch must contain games from only one storage location. The source is not removed until copying and verification succeed.
+
+## Browse games by storage
+
+Open `Manage games by storage`, then choose `SD1` or `SD2`. ROM Splitter displays only systems containing managed games on that card. After selecting a system, the normal checklist is reused but filtered to the selected storage.
+
+The same operations remain available:
+
+- An SD1 game can be moved to SD2 or permanently deleted.
+- An SD2 game can be restored to SD1 or permanently deleted.
+- Batch selection, logical CUE/M3U groups and PortMaster launcher/data-directory grouping work as in the standard game manager.
+
+After moving or deleting the final game in a filtered system, the list is refreshed and that system disappears from the corresponding storage view.
 
 ## Permanently delete games
 
