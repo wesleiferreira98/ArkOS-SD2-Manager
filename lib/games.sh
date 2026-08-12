@@ -11,8 +11,9 @@ systems_from_es() {
 }
 
 systems_for_storage() {
-  local storage="$1" system item rel
+  local storage="$1" progress_fd="${2:-}" system item rel index=0 total status_text
   local -A managed=() systems=()
+  local -a available_systems=()
 
   while IFS=$'\t' read -r rel _; do
     [[ -n "$rel" ]] || continue
@@ -24,20 +25,28 @@ systems_for_storage() {
   done < <(manifest_list)
 
   if [[ "$storage" == SD1 ]]; then
-    while IFS= read -r system; do
+    mapfile -t available_systems < <(systems_from_es)
+    total=${#available_systems[@]}
+    for system in "${available_systems[@]}"; do
+      index=$((index+1))
       [[ -n "$system" ]] || continue
+      printf -v status_text 'Checking SD1 system: %s\n\nSystems processed: %s/%s' \
+        "$system" "$index" "$total"
+      inventory_progress "$progress_fd" $((5 + index * 90 / (total > 0 ? total : 1))) "$status_text"
       while IFS= read -r item; do
         [[ -n "$item" ]] || continue
         rel="$system/$item"
         if [[ -z "${managed[$rel]+x}" && -e "$ROMS_ROOT/$rel" ]]; then
           systems["$system"]=1
-          break
         fi
       done < <(list_items_for_system "$system")
-    done < <(systems_from_es)
+    done
+  else
+    inventory_progress "$progress_fd" 80 "Reading systems from the active SD2 manifest..."
   fi
 
   ((${#systems[@]})) && printf '%s\n' "${!systems[@]}" | sort -f
+  inventory_progress "$progress_fd" 99 "Storage system list ready: ${#systems[@]} system(s)"
   return 0
 }
 

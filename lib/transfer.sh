@@ -53,7 +53,7 @@ copy_with_progress() {
             print "XXX"
           }
         ' | \
-        dialog --title "$gauge_title" --gauge "$(basename "$src")" 10 72 0
+        dialog --title "$gauge_title" --gauge "$(basename "$src")" 9 68 0
       pipeline_status=("${PIPESTATUS[@]}")
       rsync_rc=${pipeline_status[0]}
       dialog_rc=${pipeline_status[3]:-0}
@@ -384,13 +384,21 @@ IMPORT_CONFLICTS=0
 IMPORT_FAILED=0
 
 import_new_sd2_items() {
+  local progress_fd="${1:-}" status_file="${2:-}" inventory_file total=0 processed=0 percentage status_text
   mount_sd2 || return 1
   IMPORT_ADDED=0
   IMPORT_CONFLICTS=0
   IMPORT_FAILED=0
 
+  inventory_file="$(mktemp "$STATE_DIR/sd2-import.XXXXXX")"
+  discover_unmanaged_sd2_items > "$inventory_file"
+  while IFS= read -r -d '' rel; do total=$((total+1)); done < "$inventory_file"
+  verification_progress "$progress_fd" 5 "Found $total new item(s) to inspect."
+
   local rel src dst kind
   while IFS= read -r -d '' rel; do
+    processed=$((processed+1))
+    percentage=$((5 + processed * 94 / (total > 0 ? total : 1)))
     src="$ROMS2_ROOT/$rel"
     dst="$ROMS_ROOT/$rel"
     kind=file; [[ -d "$src" ]] && kind=dir
@@ -398,10 +406,7 @@ import_new_sd2_items() {
     if [[ -e "$dst" || -L "$dst" ]]; then
       log "SD2 import conflict, SD1 path already exists: $rel"
       IMPORT_CONFLICTS=$((IMPORT_CONFLICTS+1))
-      continue
-    fi
-
-    if bind_item "$src" "$dst"; then
+    elif bind_item "$src" "$dst"; then
       manifest_add "$rel" "$kind"
       IMPORT_ADDED=$((IMPORT_ADDED+1))
       log "Imported new SD2 item: $rel"
@@ -409,7 +414,18 @@ import_new_sd2_items() {
       IMPORT_FAILED=$((IMPORT_FAILED+1))
       log "Failed to import SD2 item: $rel"
     fi
-  done < <(discover_unmanaged_sd2_items)
+    printf -v status_text 'Inspected: %s\n\nProcessed: %s/%s | Linked: %s | Conflicts: %s | Failed: %s' \
+      "$rel" "$processed" "$total" "$IMPORT_ADDED" "$IMPORT_CONFLICTS" "$IMPORT_FAILED"
+    verification_progress "$progress_fd" "$percentage" "$status_text"
+  done < "$inventory_file"
+  rm -f -- "$inventory_file"
+
+  if [[ -n "$status_file" ]]; then
+    printf '%s\t%s\t%s\t%s\n' "$IMPORT_ADDED" "$IMPORT_CONFLICTS" "$IMPORT_FAILED" "$total" > "$status_file"
+  fi
+  printf -v status_text 'Scan complete.\n\nInspected: %s | Linked: %s | Conflicts: %s | Failed: %s' \
+    "$total" "$IMPORT_ADDED" "$IMPORT_CONFLICTS" "$IMPORT_FAILED"
+  verification_progress "$progress_fd" 99 "$status_text"
 
   (( IMPORT_FAILED == 0 ))
 }

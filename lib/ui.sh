@@ -4,6 +4,26 @@ set -Eeuo pipefail
 UI_BIN=""
 if command -v dialog >/dev/null 2>&1; then UI_BIN="dialog"; elif command -v whiptail >/dev/null 2>&1; then UI_BIN="whiptail"; fi
 
+UI_HEIGHT=10
+UI_WIDTH=60
+
+ui_size_for_text() {
+  local text="$1" extra_rows="${2:-5}" min_height="${3:-8}" max_height="${4:-20}"
+  local content_width=52 lines=0 line length
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    length=${#line}
+    lines=$((lines + (length > 0 ? (length + content_width - 1) / content_width : 1)))
+  done <<< "$text"
+  UI_HEIGHT=$((lines + extra_rows))
+  ((UI_HEIGHT < min_height)) && UI_HEIGHT=$min_height
+  ((UI_HEIGHT > max_height)) && UI_HEIGHT=$max_height
+  UI_WIDTH=60
+  ((lines > 8)) && UI_WIDTH=68
+  # Arithmetic tests return 1 when false; never leak that status to callers
+  # because the application runs with set -e.
+  return 0
+}
+
 ui_prompt_with_controls() {
   local prompt="$1"
   if declare -F controller_help_text >/dev/null 2>&1; then
@@ -16,7 +36,10 @@ ui_prompt_with_controls() {
 ui_msg() {
   local title="$1" text="$2"
   if [[ -n "$UI_BIN" ]]; then
-    "$UI_BIN" --title "$title" --msgbox "$(ui_prompt_with_controls "$text")" 14 72 || true
+    local display_text
+    display_text="$(ui_prompt_with_controls "$text")"
+    ui_size_for_text "$display_text" 4 8 18
+    "$UI_BIN" --title "$title" --msgbox "$display_text" "$UI_HEIGHT" "$UI_WIDTH" || true
   else
     printf '\n[%s]\n%s\n' "$title" "$text"
   fi
@@ -25,7 +48,8 @@ ui_msg() {
 ui_infobox() {
   local title="$1" text="$2"
   if [[ -n "$UI_BIN" ]]; then
-    "$UI_BIN" --title "$title" --infobox "$text" 8 72 || true
+    ui_size_for_text "$text" 3 6 12
+    "$UI_BIN" --title "$title" --infobox "$text" "$UI_HEIGHT" "$UI_WIDTH" || true
   else
     printf '\n[%s]\n%s\n' "$title" "$text"
   fi
@@ -34,7 +58,10 @@ ui_infobox() {
 ui_yesno() {
   local title="$1" text="$2"
   if [[ -n "$UI_BIN" ]]; then
-    "$UI_BIN" --title "$title" --yesno "$(ui_prompt_with_controls "$text")" 16 72
+    local display_text
+    display_text="$(ui_prompt_with_controls "$text")"
+    ui_size_for_text "$display_text" 5 9 20
+    "$UI_BIN" --title "$title" --yesno "$display_text" "$UI_HEIGHT" "$UI_WIDTH"
   else
     read -r -p "$text [y/N] " ans
     [[ "$ans" =~ ^[Yy]$ ]]
@@ -44,7 +71,18 @@ ui_yesno() {
 ui_menu() {
   local title="$1" prompt="$2"; shift 2
   if [[ -n "$UI_BIN" ]]; then
-    "$UI_BIN" --clear --title "$title" --menu "$(ui_prompt_with_controls "$prompt")" 22 78 12 "$@" 3>&1 1>&2 2>&3
+    local item_count=$(( $# / 2 )) menu_height height width menu_prompt
+    menu_height=$item_count
+    ((menu_height > 12)) && menu_height=12
+    # Menus do not use X/checklist controls, so keep their help on one compact
+    # line and reserve the detailed help text for checklist screens.
+    menu_prompt="$prompt\n\nD-Pad: Navigate | A: Confirm | B: Back"
+    height=$((menu_height + 7))
+    ((height < 9)) && height=9
+    ((height > 22)) && height=22
+    width=72
+    ((item_count <= 4)) && width=60
+    "$UI_BIN" --clear --title "$title" --menu "$menu_prompt" "$height" "$width" "$menu_height" "$@" 3>&1 1>&2 2>&3
   else
     local args=("$@") i=0
     printf '\n%s\n%s\n' "$title" "$prompt" >&2
@@ -57,7 +95,13 @@ ui_menu() {
 ui_checklist() {
   local title="$1" prompt="$2"; shift 2
   if [[ -n "$UI_BIN" ]]; then
-    "$UI_BIN" --separate-output --title "$title" --checklist "$(ui_prompt_with_controls "$prompt")" 24 78 15 "$@" 3>&1 1>&2 2>&3
+    local item_count=$(( $# / 3 )) list_height height
+    list_height=$item_count
+    ((list_height < 3)) && list_height=3
+    ((list_height > 12)) && list_height=12
+    height=$((list_height + 9))
+    ((height > 22)) && height=22
+    "$UI_BIN" --separate-output --title "$title" --checklist "$(ui_prompt_with_controls "$prompt")" "$height" 72 "$list_height" "$@" 3>&1 1>&2 2>&3
   else
     local args=("$@") i=0 answer token
     printf '\n%s\n%s\n' "$title" "$prompt" >&2
@@ -73,7 +117,7 @@ ui_checklist() {
 ui_gauge() {
   local title="$1" prompt="$2"
   if [[ -n "$UI_BIN" ]]; then
-    "$UI_BIN" --title "$title" --gauge "$prompt" 10 72 0
+    "$UI_BIN" --title "$title" --gauge "$prompt" 9 68 0
   else
     # Keep noninteractive/keyboard-only execution quiet while consuming input.
     while IFS= read -r _; do :; done
@@ -119,10 +163,14 @@ show_storage_info() {
 }
 
 choose_system() {
-  local storage_filter="${1:-}" opts=() s prompt="Choose a system"
+  local storage_filter="${1:-}" supplied_systems="${2:-}" opts=() s prompt="Choose a system"
   [[ -n "$storage_filter" ]] && prompt="Choose a system on $storage_filter"
   if [[ -n "$storage_filter" ]]; then
-    while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done < <(systems_for_storage "$storage_filter")
+    if [[ -n "$supplied_systems" ]]; then
+      while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done <<< "$supplied_systems"
+    else
+      while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done < <(systems_for_storage "$storage_filter")
+    fi
   else
     while read -r s; do [[ -n "$s" ]] && opts+=("$s" "$s"); done < <(systems_from_es)
   fi
@@ -259,19 +307,37 @@ manage_games() {
 }
 
 manage_games_by_storage() {
-  local storage sys
+  local storage sys available_systems systems_file scan_rc gauge_rc
+  local -a pipeline_status
   while storage="$(choose_storage)"; do
     if [[ "$storage" == SD2 ]] && ! mount_sd2; then
       ui_msg "SD2" "No configured ROMS2 card was found."
       continue
     fi
 
-    if ! systems_for_storage "$storage" | grep -q .; then
-      ui_msg "Browse by storage" "No managed games were found on $storage."
-      continue
-    fi
+    while true; do
+      systems_file="$(mktemp "$STATE_DIR/storage-systems.XXXXXX")"
+      set +e
+      # Duplicate the pipeline into fd 3 first, then redirect normal output to
+      # the cache file. Reversing this order mixes gauge protocol into systems.
+      systems_for_storage "$storage" 3 3>&1 > "$systems_file" | \
+        ui_gauge "Scanning $storage" "Looking for systems with games..."
+      pipeline_status=("${PIPESTATUS[@]}")
+      scan_rc=${pipeline_status[0]:-1}
+      gauge_rc=${pipeline_status[1]:-1}
+      set -e
+      available_systems="$(<"$systems_file")"
+      rm -f -- "$systems_file"
 
-    while sys="$(choose_system "$storage")"; do
+      if ((scan_rc != 0 || gauge_rc != 0)); then
+        ui_msg "Browse by storage" "Could not scan systems on $storage. Check the log."
+        break
+      fi
+      if [[ -z "$available_systems" ]]; then
+        ui_msg "Browse by storage" "No managed games were found on $storage."
+        break
+      fi
+      sys="$(choose_system "$storage" "$available_systems")" || break
       manage_system "$sys" "$storage"
     done
   done
@@ -309,11 +375,28 @@ show_diagnostics() {
 }
 
 scan_sd2_for_new_games() {
-  if import_new_sd2_items; then
+  local status_file import_rc gauge_rc total=0
+  local -a pipeline_status
+  status_file="$(mktemp "$STATE_DIR/sd2-scan-status.XXXXXX")"
+
+  set +e
+  import_new_sd2_items 3 "$status_file" 3>&1 | ui_gauge "Scanning SD2" "Looking for new games..."
+  pipeline_status=("${PIPESTATUS[@]}")
+  import_rc=${pipeline_status[0]:-1}
+  gauge_rc=${pipeline_status[1]:-1}
+  set -e
+
+  if [[ -s "$status_file" ]]; then
+    IFS=$'\t' read -r IMPORT_ADDED IMPORT_CONFLICTS IMPORT_FAILED total < "$status_file"
+  fi
+  rm -f -- "$status_file"
+
+  if ((import_rc == 0 && gauge_rc == 0)); then
     ui_msg "Scan SD2" "New items linked: $IMPORT_ADDED\nConflicts skipped: $IMPORT_CONFLICTS\nFailures: $IMPORT_FAILED\n\nNew games are now available under /roms."
   else
     ui_msg "Scan SD2" "New items linked: $IMPORT_ADDED\nConflicts skipped: $IMPORT_CONFLICTS\nFailures: $IMPORT_FAILED\n\nCheck the log for failed items."
   fi
+  return 0
 }
 
 switch_sd2_ui() {

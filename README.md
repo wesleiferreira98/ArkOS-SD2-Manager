@@ -6,7 +6,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release history and known limitations.
 
 Games stored physically on SD2 are bind-mounted back to their original `/roms/<system>/<game>` locations. If SD2 is absent, the console and games remaining on SD1 continue to work normally.
 
-> **Beta warning:** version 0.6.0-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
+> **Beta warning:** version 0.6.7-beta has automated local tests and initial R36H validation, but still requires broader validation on ArkOS/dArkOS handhelds. Test formatting and transfers with expendable media before using an important card. Formatting permanently erases the selected device.
 
 ## Features
 
@@ -61,7 +61,7 @@ Administrative operations use `sudo` when the manager is not running as root.
 The release contains two files:
 
 ```text
-ROM-Splitter-0.6.0-beta.zip
+ROM-Splitter-0.6.7-beta.zip
 Install ROM Splitter.sh
 ```
 
